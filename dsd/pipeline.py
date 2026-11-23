@@ -13,9 +13,14 @@ from . import checks, links, runner
 PROMPTS = Path(__file__).resolve().parents[1] / "prompts"
 DEFAULT_CHAIN = [runner.Model("deepseek-v4.1-flash", "max", 600),
                  runner.Model("hy4flash", None, 300), runner.Model("hy4std", None, 300)]
-EDIT_TOOLS = ["Read", "Glob", "Grep", "Edit", "MultiEdit", "Write", "Task", "Agent",
-              "Bash(git diff:*)", "Bash(git status:*)"]
-READ_TOOLS = ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git status:*)"]
+GIT_READ = ["git diff", "git status", "git log", "git show"]
+EDIT_TOOLS = ["Read", "Glob", "Grep", "Edit", "MultiEdit", "Write", "Task", "Agent"]
+READ_TOOLS = ["Read", "Glob", "Grep"]
+
+
+def shell_rules(prefixes: list) -> list:
+    """CodeBuddy on Windows runs commands through PowerShell or Bash; allow both."""
+    return [f"{shell}({p}:*)" for p in prefixes for shell in ("Bash", "PowerShell")]
 LIMITS = {"func_max": 50, "file_max": 400, "dup_window": 6, "max_fix_rounds": 3, "max_turns": 80}
 
 
@@ -53,6 +58,9 @@ class Job:
         self.state = json.loads(self.state_file.read_text(encoding="utf-8")) \
             if self.state_file.exists() else {"sessions": {}}
         self.notes: list = []
+        prefix = task.get("test_tool_prefix") or " ".join(task["test_cmd"].split()[:3])
+        self.edit_tools = EDIT_TOOLS + shell_rules([prefix] + GIT_READ)
+        self.read_tools = READ_TOOLS + shell_rules(GIT_READ)
 
     @classmethod
     def load(cls, task_path, chain=None) -> "Job":
@@ -144,11 +152,11 @@ class Job:
         self.state.setdefault("tests_base", checks.tree_snapshot(self.root))
         fresh = "tests" not in self.state["sessions"]
         text = prompt("tests", **self._values()) if fresh else f"总监的意见：\n{feedback or '请继续。'}"
-        res = self._turn("tests", text, EDIT_TOOLS)
-        problems = self._fix_loop("tests", self._check_tests, EDIT_TOOLS)
+        res = self._turn("tests", text, self.edit_tools)
+        problems = self._fix_loop("tests", self._check_tests, self.edit_tools)
         if not problems:
-            res = self._turn("tests", prompt("selfcheck_tests"), EDIT_TOOLS)
-            problems = self._fix_loop("tests", self._check_tests, EDIT_TOOLS)
+            res = self._turn("tests", prompt("selfcheck_tests"), self.edit_tools)
+            problems = self._fix_loop("tests", self._check_tests, self.edit_tools)
         self.save()
         return self._outcome(problems, self._matching("test_paths"), res.text)
 
@@ -219,7 +227,7 @@ class Job:
 
     def _review(self, files: list) -> str:
         text = prompt("review", **self._values(), files="\n".join(files), diff=self._diff(files))
-        return self._turn("review", text, READ_TOOLS).text
+        return self._turn("review", text, self.read_tools).text
 
     def run_impl_phase(self, feedback: str | None = None) -> Outcome:
         if "locked" not in self.state:
@@ -235,14 +243,14 @@ class Job:
         text = prompt("impl", **self._values(), test_files=", ".join(locked["tests"]),
                       signatures=json.dumps(locked["signatures"], ensure_ascii=False)) \
             if fresh else f"总监的意见：\n{feedback or '请继续。'}"
-        res = self._turn("impl", text, EDIT_TOOLS)
-        problems = self._fix_loop("impl", self._check_impl, EDIT_TOOLS)
+        res = self._turn("impl", text, self.edit_tools)
+        problems = self._fix_loop("impl", self._check_impl, self.edit_tools)
         changed = checks.changed_between(self.state["impl_base"], checks.tree_snapshot(self.root))
         review = ""
         if not problems and "review" not in self.state["sessions"]:
             review = self._review(changed)
             if "VERDICT: CHANGES" in review:
-                res = self._turn("impl", "审查者的意见（不同意的条目请说明理由，不必照改）：\n" + review, EDIT_TOOLS)
-                problems = self._fix_loop("impl", self._check_impl, EDIT_TOOLS)
+                res = self._turn("impl", "审查者的意见（不同意的条目请说明理由，不必照改）：\n" + review, self.edit_tools)
+                problems = self._fix_loop("impl", self._check_impl, self.edit_tools)
         self.save()
         return self._outcome(problems, changed, res.text, review)

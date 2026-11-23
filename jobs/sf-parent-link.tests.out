@@ -1,0 +1,90 @@
+## dsd tests: ok
+files: tests/__init__.py, tests/sf_testkit.py, tests/test_links.py, tests/test_parent_link.py, tests/test_rows.py, tests/test_show.py, tests/test_sync.py
+
+### executor's last reply
+自查完成，补了 5 个用例、强化了 3 处断言、重命名 2 个测试。**仍然无法执行** `python -m unittest discover -s tests -t .`：本轮再次尝试，PowerShell 仍被非交互权限拒绝（不再绕过）。以下结论基于静态核对。
+
+## 本轮补充
+
+| 文件 | 变更 |
+|---|---|
+| test_parent_link | 新增“sidecar 必须与 transcript 同目录”；`.jsonl.zst` 用例改为整字典断言；`test_returns_all_four_fields` 更名 |
+| test_rows | 新增“行 agent 默认 subagent”；自身有 parent 时连 sidecar 的 title 也忽略 |
+| test_links | 新增两个子会话 → `+ 2 sub-agent(s)` / `2 sub-agent sessions hidden` |
+| test_show | 新增父会话 footer 同时列出两个跨来源子会话 |
+| test_sync | 新增 `show <云端父>` 列出云端跨来源子会话、`show <云端子>` 链接行用 `cl@REMOTE-A` 标签（第 7 条对第 6 条也成立） |
+
+## 更新后的行为表
+
+| 场景 | 输入 | 期望 |
+|---|---|---|
+| parent_link 正常 / agent 缺省 | sidecar `{src,id,agent,title}`、缺 agent、`agent:""` | 四键返回；agent=`subagent` |
+| parent_link title | 缺 title、`title:""` | 返回 dict 无 `title` 键 |
+| parent_link 失败路径 | 无 sidecar、坏 JSON、空文件、JSON 数组、缺/空 src、缺/空 id、src=`zz` | `{}` |
+| parent_link 位置/命名 | 同目录 `.jsonl` / `.jsonl.zst`、他人 sid、别的目录 | 找 `<sid>.parent.json`；其余 `{}` |
+| local_rows 挂接 | cb/wb/cx/cl 会话 + sidecar | parent / parent_src / agent（默认 subagent）；is_sub 真 |
+| local_rows 标题 | 无标题+sidecar.title / 有 ai-title / 无 title | `"[agent] title"`（has_title 真）/ 原标题（加 agent 前缀）/ 首问 |
+| local_rows 缓存 | 先 local_rows，再写/删 sidecar | 下一次调用立即生效/失效 |
+| local_rows 自身有 parent | claude subagent + sidecar（含 title） | 自身 parent/agent/标题保留，无 parent_src |
+| 分组 | cb 子 parent_src=cl；同来源无 parent_src；不同 host；两个子 | 挂到 cl 父；同源照旧；host 不串；`+ 2 sub-agent(s)` |
+| 标签 | 子行 parent_src=cl / fork / side / 无 parent | `cl\|db444e85`、`↳ sub-agent of …`、fork/side 措辞、unknown |
+| list | 默认 / --subagents / 两个子 | 隐藏+提示 N hidden+父行计数；开关后子行+链接行；计数 2 |
+| find / grep | 仅子会话命中 | 默认 rc=1；--subagents 命中（grep 带链接行） |
+| show 父 | 跨来源子 / 同来源子 / 两个子 / 无子 / 未知 id | footer 列全部子会话 / 无 footer / rc=1 |
+| show 子 | 本地 cb 子 / cl 子 | `# [ds:impl] ↳ sub-agent of cl\|db444e85`；同源用自身 src |
+| sync index | sidecar 会话、无父会话 | 条目带 parent/parent_src/agent；无父不带 parent_src |
+| cloud_rows | 手写另一台机器 index / 缺 parent_src | 保留 parent_src、分组/tag/is_sub 成立；无 parent_src 按自身 src |
+| 云端 show | 同步后拷成 REMOTE-A，show 云端父/子 | footer 列跨来源子；链接行 `cl@REMOTE-A\|…` |
+
+## 仍需总监决定（与上轮相同，未变）
+
+1. sidecar 与真实标题冲突（测试：真实标题优先，agent 仍加前缀）。
+2. sidecar 提供标题时 `has_title` 测试要求 True。
+3. 空串语义：`agent:""`→subagent、`title:""`→无 title 键、`src/id:""`→`{}`。
+4. sidecar 别名（`claude`/`codex`）未测，按“SOURCES 里没有就 `{}`”。
+5. 云端父标签带 `@HOST`（测试断言 `parent_tag(子) == tag_of(父行)`）。
+6. transcript 不存在但 sidecar 在、非字符串 id：规格未说，未测。
+
+无遗漏（对照 1–7 条逐项有覆盖）。无 STRUCTURE-REQUEST，无 TEST-DISPUTE。
+
+### test output (tail)
+Traceback (most recent call last):
+  File "D:\Sandbox\session-finder-kit\tests\test_show.py", line 45, in test_child_header_shows_the_parent_source_tag
+    self.assertIn("# [ds:impl] ↳ sub-agent of cl|db444e85", out)
+AssertionError: '# [ds:impl] ↳ sub-agent of cl|db444e85' not found in '# CodeBuddy @ OOF78X · 0193b2c4-1111-7000-8000-000000000001.jsonl\n\n[11-20 18:00] user      child task\n'
+
+======================================================================
+FAIL: test_parent_footer_lists_both_children (tests.test_show.ShowTest.test_parent_footer_lists_both_children)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Sandbox\session-finder-kit\tests\test_show.py", line 40, in test_parent_footer_lists_both_children
+    self.assertIn(find_session.tag_of(self.only(rows, sid)), out)
+AssertionError: 'cb|0193b2c4-1111' not found in '# Claude Code @ OOF78X · db444e85-f5d6-5a72-a39b-8cb176c40190.jsonl\n\n[11-20 18:00] user      lead asked\n'
+
+======================================================================
+FAIL: test_parent_footer_lists_child_from_another_source (tests.test_show.ShowTest.test_parent_footer_lists_child_from_another_source)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Sandbox\session-finder-kit\tests\test_show.py", line 21, in test_parent_footer_lists_child_from_another_source
+    self.assertIn("sub-agent(s)/side chat(s) of this session", out)
+AssertionError: 'sub-agent(s)/side chat(s) of this session' not found in '# Claude Code @ OOF78X · db444e85-f5d6-5a72-a39b-8cb176c40190.jsonl\n\n[11-20 18:00] user      lead asked\n'
+
+======================================================================
+FAIL: test_cloud_child_groups_under_the_cloud_parent (tests.test_sync.CloudRowsTest.test_cloud_child_groups_under_the_cloud_parent)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "D:\Sandbox\session-finder-kit\tests\test_sync.py", line 75, in test_cloud_child_groups_under_the_cloud_parent
+    self.assertEqual([k["id"] for k in find_session.kids_for(kids, parent)],
+AssertionError: Lists differ: [] != ['0193b2c4-1111-7000-8000-000000000001']
+
+Second list contains 1 additional elements.
+First extra element 0:
+'0193b2c4-1111-7000-8000-000000000001'
+
+- []
++ ['0193b2c4-1111-7000-8000-000000000001']
+
+----------------------------------------------------------------------
+Ran 64 tests in 0.353s
+
+FAILED (failures=24, errors=21, skipped=4)

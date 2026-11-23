@@ -1,0 +1,44 @@
+id = "sf-parent-link"
+workdir = "D:/Sandbox/session-finder-kit"
+test_cmd = "python -m unittest discover -s tests -t ."
+test_paths = ["tests/**"]
+src_paths = ["session-finder/scripts/find_session.py"]
+
+goal = """
+session-finder：让一个客户端的会话可以声明自己的父会话在另一个客户端里（跨来源父链接）。
+用途：ds-director 用 Claude Code 会话指挥 CodeBuddy CLI，CodeBuddy 的会话要挂在那个 Claude 会话下面，
+像现有的 Claude 子代理 / Codex 侧旁对话一样默认隐藏、在父会话下列出。
+"""
+
+structure = """
+- 唯一源码文件：session-finder/scripts/find_session.py（1800 行的单文件脚本，保持单文件）。
+- 新公开函数只有骨架里已经放好的 `parent_link(path)`（在 subagent_of 下面），实现它。
+- 行里新增一个可选字段 `parent_src`（父会话的来源键 wb/cx/cl/cb）。没有这个字段的行，行为和现在完全一样。
+- 需要改的现有函数：local_rows（套用 sidecar）、children_of / kids_for（按父来源分组）、parent_tag（用父来源出标签）、
+  cmd_show（列子会话时跨来源找）、同步写 _index.json 的那段（带上 parent_src）。cloud_rows 读回来时保留它。
+- 不要改 META_V，sidecar 不进缓存：每次 local_rows 都重新读（只是一次 stat + 小文件读取）。
+- 测试放 tests/ 下（仓库根目录，新建），用标准库 unittest，不装 pytest。
+  导入方式：把 session-finder/scripts 加进 sys.path 再 `import find_session`；导入前设 SESSION_FINDER_NO_UPDATE=1。
+  不要碰用户真实的 ~/.claude 等目录：测试里把 SOURCES 各来源的 root 和缓存路径（CACHE）指到临时目录，
+  并把 cloud_root 打桩成返回 None（没有多机同步）。
+"""
+
+behavior = """
+1. parent_link(path)：读 transcript 同目录下的 `<sid>.parent.json`，sid = 文件名去掉 .jsonl / .jsonl.zst。
+   - 正常：返回 {"parent": id, "parent_src": src, "agent": agent, "title": title}；agent 缺省为 "subagent"；没有 title 就不带这个键。
+   - 没有 sidecar、JSON 坏了、缺 src 或 id、src 不是已知来源键（SOURCES 里没有）→ 返回 {}。
+2. local_rows：任何来源的会话，只要有可用 sidecar，且会话自身数据里没有 parent，行就带上 parent / parent_src / agent。
+   会话没有真实标题时，用 sidecar 的 title 作为标题（照现有规则加 "[agent] " 前缀）。
+   sidecar 在会话已被缓存之后才出现，下一次 local_rows 也要生效。
+3. 这些行 is_sub 为真：list/find/grep 默认隐藏，--subagents 才显示。
+4. children_of / kids_for：子行按 (parent_src 或自身 src, host, parent) 分组，所以 cb 的子会话能挂到 cl 的父会话行下；
+   父行显示 "+ N sub-agent(s)"。没有 parent_src 的行保持同来源分组。
+5. parent_tag / link_note：用父来源出标签，例如子会话显示 "↳ sub-agent of cl|db444e85"（不是 cb|...）。
+6. show <父会话>：末尾的子会话列表包含其他来源里 parent_src 指向它的会话；show <子会话> 的链接行显示父会话的 cl 标签。
+7. 同步：写进 _index.json 的条目在有 parent_src 时带上它；cloud_rows 读回来的行保留 parent_src，第 4–6 条对其他机器的会话同样成立。
+"""
+
+[limits]
+func_max = 90      # legacy single-file script; cmd_show is already ~70 lines
+file_max = 2500
+max_fix_rounds = 3

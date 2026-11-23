@@ -71,6 +71,23 @@ class TestsPhase(unittest.TestCase):
         self.assertIn("self-check", calls[1]["prompt"].lower())
         self.assertIn("tests/test_calc.py", out.files)
         self.assertIn("NotImplementedError", out.test_output)
+        tools = calls[0]["argv"][calls[0]["argv"].index("--allowedTools") + 1:]
+        for shell in ("Bash", "PowerShell"):  # CodeBuddy on Windows uses either
+            self.assertIn(f"{shell}(python -m unittest:*)", tools)
+            self.assertIn(f"{shell}(git diff:*)", tools)
+
+    def test_test_tool_prefix_can_be_set_in_the_task(self):
+        d = make_repo()
+        with open(d / "task.toml", "a", encoding="utf-8") as f:
+            f.write('\n')
+        text = (d / "task.toml").read_text(encoding="utf-8").replace(
+            'test_paths =', 'test_tool_prefix = "python -m unittest discover"\ntest_paths =')
+        (d / "task.toml").write_text(text, encoding="utf-8")
+        with FakeEnv([{"write": {"tests/test_calc.py": TEST}}, {}]) as fe:
+            load(d).run_tests_phase()
+        tools = fe.calls()[0]["argv"]
+        self.assertIn("PowerShell(python -m unittest discover:*)", tools)
+        self.assertNotIn("PowerShell(python -m unittest:*)", tools)
 
     def test_touching_source_in_tests_phase_is_sent_back(self):
         d = make_repo()
@@ -124,6 +141,8 @@ class LockAndImpl(unittest.TestCase):
         tools = review[review.index("--allowedTools") + 1:]
         self.assertNotIn("Edit", tools)
         self.assertNotIn("Write", tools)
+        self.assertNotIn("PowerShell(python -m unittest:*)", tools)
+        self.assertIn("PowerShell(git diff:*)", tools)
         self.assertIn("calc.py", fe.calls()[1]["prompt"])
 
     def test_edited_tests_are_restored_and_it_is_told(self):

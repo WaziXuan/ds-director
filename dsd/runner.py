@@ -64,17 +64,19 @@ def _kill_tree(proc: subprocess.Popen) -> None:
 def _call(argv: list[str], prompt: str, cwd: Path, timeout: int, log: Path) -> tuple[str, dict | None]:
     """-> (problem or '', result event)."""
     log.parent.mkdir(parents=True, exist_ok=True)
-    with open(log, "a", encoding="utf-8") as out:
-        out.write(json.dumps({"dsd": "call", "argv": argv[-40:], "at": time.time()}) + "\n")
+    with open(log, "ab") as out:  # streamed, so a running turn can be watched
+        out.write((json.dumps({"dsd": "call", "argv": argv[-40:], "at": time.time()}) + "\n").encode())
         out.flush()
-        proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+        start = out.tell()
+        proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=out, stderr=subprocess.STDOUT)
         try:
-            stdout, _ = proc.communicate(prompt, timeout=timeout)
+            proc.communicate(prompt.encode("utf-8"), timeout=timeout)
         except subprocess.TimeoutExpired:
             _kill_tree(proc)
             return f"timeout after {timeout}s", None
-        out.write(stdout)
+    with open(log, "rb") as f:
+        f.seek(start)
+        stdout = f.read().decode("utf-8", errors="replace")
     result = None
     for line in stdout.splitlines():
         if line.startswith("{") and '"type"' in line:
