@@ -1,0 +1,35 @@
+## dsd impl: ok
+files: session-finder/scripts/find_session.py
+
+### review
+已读完实现和测试。有两个需求行为测试没有覆盖、实现确实不符合规格：
+
+- `session-finder/scripts/find_session.py:712-716`（`kids_for`）：当父会话已有同来源的子行时，`[... if not k.get("parent_src")] or got` 会把通过 sidecar 挂到该父会话的跨来源子行整个丢弃，导致 `fmt`（:734）显示的 “+ N sub-agent(s)” 少算，`cmd_show`（:960）末尾的列表也缺项，直接违反要求 4 和要求 6（`list` 的隐藏计数仍包含这些行，同一输出自相矛盾）；这看起来是为了让 `test_same_source_child_without_parent_src_still_groups` 的精确列表断言通过。该测试的 setUp 里同一个父会话下已经有一条 cl→cb 的跨来源子行，所以这条断言本身与要求 6 矛盾；应该改回直接返回分组结果，并把断言改成包含两条（或让该测试使用独立的父 id）。
+
+- `session-finder/scripts/find_session.py:599-606` 和 `:687-689`：sidecar 的 `agent`（规格中是展示标签，如 `ds:impl`）被直接当成 kind 传给 `is_sub`。若写 `"side"` 或 `"fork"`，这些行就不再隐藏、也不挂在要求 4 的位置，违反要求 3 “这些行 is_sub 为真”；该路径没有测试覆盖。
+
+VERDICT: CHANGES
+
+### executor's last reply
+已按审查意见修改 `session-finder/scripts/find_session.py`：
+
+1. **`kids_for` (:712) 恢复直接返回分组结果**，不再丢弃跨来源子行。`fmt` 的 “+ N sub-agent(s)” 和 `cmd_show` 页脚现在都包含 sidecar 挂载的子会话，与 `list` 的隐藏计数一致。
+2. **`is_sub` (:687) 修正 kind 判定**：带 `parent_src` 的行（sidecar 链接，含云端回读）一律视为子代理，`agent` 里的 `"side"`/`"fork"` 只当展示标签，不再让这些行逃出默认隐藏和父会话分组。`test_is_sub_needs_a_parent_and_a_sub_agent_kind` 等原有 kind 语义（无 `parent_src` 时）不变。
+
+**测试结果**：`python -m unittest discover -s tests -t .` → 63 通过、4 跳过、1 失败：
+
+```
+FAIL: test_same_source_child_without_parent_src_still_groups
+['agent-a1b2c3', '0193b2c4-1111-7000-8000-000000000001'] != ['agent-a1b2c3']
+```
+
+**TEST-DISPUTE**: `tests/test_links.py:55-62` 的 `assertEqual(..., ["agent-a1b2c3"])` 与要求 6 冲突——`GroupingTest.setUp` 已把 `CB_CHILD` 以 `parent_src=cl` 挂到同一个 `CL_PARENT` 下，正确实现必然返回两条。审查意见也确认了这点。建议把断言改成包含两条（按 rows 顺序为 `["agent-a1b2c3", CB_CHILD]`）或改为 `assertIn`，或让该测试用独立父 id；我按阶段规则不能修改锁定测试，所以没有动它。
+
+**STRUCTURE-REQUEST**: 请授权修改 `tests/test_links.py:55-62`（或由总监直接改）以解除这一处与要求 4/6 的矛盾；否则按规格实现的 `kids_for` 无法同时满足该断言。
+
+### test output (tail)
+............................................................ssss
+----------------------------------------------------------------------
+Ran 64 tests in 0.418s
+
+OK (skipped=4)

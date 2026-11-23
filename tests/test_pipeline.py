@@ -181,6 +181,39 @@ class LockAndImpl(unittest.TestCase):
         self.assertEqual(out.status, "needs_director")
         self.assertEqual(len(fe.calls()), 3)  # first + 2 fix rounds, no review
 
+    def test_test_dispute_stops_the_fix_loop_and_goes_to_director(self):
+        d = self.ready()
+        with FakeEnv([{"result": "TEST-DISPUTE: test_add contradicts behavior 1"}] + [{}] * 3) as fe:
+            out = load(d).run_impl_phase()
+        self.assertEqual(out.status, "needs_director")
+        self.assertEqual(len(fe.calls()), 1)
+        self.assertTrue(any("TEST-DISPUTE" in p for p in out.problems))
+
+    def test_saying_there_is_no_dispute_does_not_escalate(self):
+        self.assertFalse(pipeline.escalation_lines("无 STRUCTURE-REQUEST，无 TEST-DISPUTE。"))
+        self.assertFalse(pipeline.escalation_lines("No TEST-DISPUTE: none."))
+        self.assertEqual(pipeline.escalation_lines("done\n**TEST-DISPUTE**: t1 is wrong"),
+                         ["**TEST-DISPUTE**: t1 is wrong"])
+        self.assertEqual(pipeline.escalation_lines("- STRUCTURE-REQUEST：拆分模块"),
+                         ["- STRUCTURE-REQUEST：拆分模块"])
+
+    def test_dispute_after_review_also_stops(self):
+        d = self.ready()
+        with FakeEnv([{"write": {"calc.py": GOOD}},
+                      {"result": "1. wrong\nVERDICT: CHANGES"},
+                      {"result": "STRUCTURE-REQUEST: need a new module"}] + [{}] * 3) as fe:
+            out = load(d).run_impl_phase()
+        self.assertEqual(out.status, "needs_director")
+        self.assertEqual(len(fe.calls()), 3)
+
+    def test_tests_phase_structure_request_goes_to_director(self):
+        d = make_repo()
+        with FakeEnv([{"write": {"tests/test_calc.py": TEST},
+                       "result": "STRUCTURE-REQUEST: add() should take a list"}] + [{}] * 3) as fe:
+            out = load(d).run_tests_phase()
+        self.assertEqual(out.status, "needs_director")
+        self.assertEqual(len(fe.calls()), 1)
+
     def test_review_issues_go_back_to_impl_session_once(self):
         d = self.ready()
         with FakeEnv([{"write": {"calc.py": GOOD}},

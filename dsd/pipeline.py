@@ -1,6 +1,7 @@
 """The two-phase TDD job: tests (red) -> director lock -> implementation (green) -> review."""
 import fnmatch
 import json
+import re
 import shutil
 import subprocess
 import tomllib
@@ -26,6 +27,23 @@ LIMITS = {"func_max": 50, "file_max": 400, "dup_window": 6, "max_fix_rounds": 3,
 
 class PhaseError(Exception):
     pass
+
+
+class Escalation(Exception):
+    """The executor raised TEST-DISPUTE / STRUCTURE-REQUEST: only the director may decide,
+    so the fix loop must stop rather than push it to satisfy the disputed contract."""
+
+    def __init__(self, phase: str, reply: str):
+        super().__init__(reply)
+        self.phase, self.reply = phase, reply
+
+
+_ESCALATION = re.compile(r"^[\s>*-]*(TEST-DISPUTE|STRUCTURE-REQUEST)\**\s*[:：]")
+
+
+def escalation_lines(reply: str) -> list:
+    """Lines that open with a marker ("**TEST-DISPUTE**: ..."), not ones merely naming it."""
+    return [l.strip() for l in reply.splitlines() if _ESCALATION.match(l)]
 
 
 @dataclass
@@ -102,6 +120,8 @@ class Job:
             self.notes.append(f"{phase}: permission denied for {', '.join(res.denials)}")
         if not res.ok:
             raise PhaseError(f"every model failed on {phase}: " + "; ".join(res.fallbacks))
+        if phase != "review" and escalation_lines(res.text):
+            raise Escalation(phase, res.text)
         return res
 
     def _run_tests(self) -> tuple[int, str]:
@@ -123,6 +143,15 @@ class Job:
         snap = checks.tree_snapshot(self.root)
         return sorted(p for p in snap if any(fnmatch.fnmatch(p, g) for g in self.task[patterns_key]))
 
+    def _escalated(self, e: Escalation, patterns_key: str) -> Outcome:
+        self.save()
+        return self._outcome(escalation_lines(e.reply), self._changed(patterns_key), e.reply)
+
+    def _changed(self, patterns_key: str) -> list:
+        if patterns_key == "src_paths" and "impl_base" in self.state:
+            return checks.changed_between(self.state["impl_base"], checks.tree_snapshot(self.root))
+        return self._matching(patterns_key)
+
     def _outcome(self, problems: list, files: list, reply: str, review: str = "") -> Outcome:
         _, out = self._run_tests()
         return Outcome("needs_director" if problems else "ok", problems, files, out, reply,
@@ -143,6 +172,8 @@ class Job:
     def run_tests_phase(self, feedback: str | None = None) -> Outcome:
         try:
             return self._tests_phase(feedback)
+        except Escalation as e:
+            return self._escalated(e, "test_paths")
         except PhaseError as e:
             return Outcome("model_failed", [str(e)], notes=self.notes)
 
@@ -234,6 +265,8 @@ class Job:
             raise PhaseError("tests are not locked yet: run the tests phase and `lock` first")
         try:
             return self._impl_phase(feedback)
+        except Escalation as e:
+            return self._escalated(e, "src_paths")
         except PhaseError as e:
             return Outcome("model_failed", [str(e)], notes=self.notes)
 
@@ -245,7 +278,7 @@ class Job:
             if fresh else f"总监的意见：\n{feedback or '请继续。'}"
         res = self._turn("impl", text, self.edit_tools)
         problems = self._fix_loop("impl", self._check_impl, self.edit_tools)
-        changed = checks.changed_between(self.state["impl_base"], checks.tree_snapshot(self.root))
+        changed = self._changed("src_paths")
         review = ""
         if not problems and "review" not in self.state["sessions"]:
             review = self._review(changed)
