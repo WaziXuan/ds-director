@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from dsd import links, runner
 
@@ -144,6 +145,29 @@ class Links(unittest.TestCase):
         finally:
             del os.environ["CLAUDE_CODE_SESSION_ID"]
         self.assertIsNone(links.current_parent())
+
+    def test_parent_and_source_come_from_codex_env(self):
+        with patch.dict(os.environ, {"CODEX_THREAD_ID": "01a1c9cd-codex"}):
+            os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
+            self.assertEqual(links.current_parent(), "01a1c9cd-codex")
+            self.assertEqual(links.current_parent_source(), "cx")
+
+    def test_explicit_parent_override_selects_source(self):
+        env = {"DSD_PARENT_SESSION": "parent-id", "DSD_PARENT_SOURCE": "cx",
+               "CLAUDE_CODE_SESSION_ID": "claude-id"}
+        with patch.dict(os.environ, env):
+            self.assertEqual(links.current_parent(), "parent-id")
+            self.assertEqual(links.current_parent_source(), "cx")
+
+    def test_sidecar_supports_codex_parent(self):
+        root = Path(tempfile.mkdtemp())
+        (root / "d-Work").mkdir()
+        (root / "d-Work" / "ds-cafe-j1-tests.jsonl").write_text("{}\n")
+        p = links.write_sidecar(root, "ds-cafe-j1-tests", "cafe-full-id", "ds:tests", "j1",
+                                source="cx")
+        data = json.loads(p.read_text(encoding="utf-8"))
+        self.assertEqual(data["src"], "cx")
+        self.assertEqual(data["id"], "cafe-full-id")
 
 
 if __name__ == "__main__":

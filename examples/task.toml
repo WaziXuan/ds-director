@@ -1,0 +1,23 @@
+id = "example"
+# workdir defaults to this task file's directory; set an absolute target repo when needed.
+# workdir = "/absolute/path/to/target-repo"
+test_cmd = "python -m unittest discover -s tests -t ."
+test_paths = ["tests/**"]
+src_paths = ["pkg/core.py"]
+
+goal = "One paragraph describing the user-visible outcome."
+structure = """
+File layout, dependency direction and public signatures fixed by the director.
+The executor may add private helpers but may not change the public skeleton.
+"""
+behavior = """
+1. Normal cases, with concrete expected results.
+2. Edge cases and error handling.
+3. What must remain unchanged.
+"""
+
+[limits]
+func_max = 50
+file_max = 400
+dup_window = 6
+max_fix_rounds = 3

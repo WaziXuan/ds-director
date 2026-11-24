@@ -11,7 +11,7 @@ from string import Template
 
 from . import checks, links, runner
 
-PROMPTS = Path(__file__).resolve().parents[1] / "prompts"
+PROMPTS = Path(__file__).resolve().parent / "prompts"
 DEFAULT_CHAIN = [runner.Model("deepseek-v4.1-flash", "max", 600),
                  runner.Model("hy4flash", None, 300), runner.Model("hy4std", None, 300)]
 GIT_READ = ["git diff", "git status", "git log", "git show"]
@@ -105,6 +105,7 @@ class Job:
 
     def _turn(self, phase: str, text: str, tools: list) -> runner.TurnResult:
         parent = self.state.setdefault("parent", links.current_parent())
+        parent_src = self.state.setdefault("parent_src", links.current_parent_source())
         sid = self.state["sessions"].get(phase)
         first = sid is None
         if first:
@@ -114,7 +115,8 @@ class Job:
                               append=prompt("rules", **self._values()), log=self.dir / f"{phase}.log",
                               max_turns=self.limits["max_turns"])
         title = f"{self.id} · {phase} · {self.task.get('goal', '').strip().splitlines()[0][:40]}"
-        links.write_sidecar(links.projects_root(), sid, parent, f"ds:{phase}", title)
+        links.write_sidecar(links.projects_root(), sid, parent, f"ds:{phase}", title,
+                            source=parent_src)
         self.notes += [f"{phase}: fell back from {f}" for f in res.fallbacks]
         if res.denials:
             self.notes.append(f"{phase}: permission denied for {', '.join(res.denials)}")

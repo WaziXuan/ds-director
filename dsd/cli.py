@@ -1,4 +1,4 @@
-"""dsd — Claude directs, CodeBuddy (DeepSeek V4.1 Flash Max) executes, tests first.
+"""dsd — Claude Code or Codex directs, CodeBuddy executes, tests first.
 
   dsd tests  <task.toml> [--feedback TEXT]   write red tests (+ one self-check round)
   dsd lock   <task.toml>                     director approves: freeze tests + public signatures
@@ -42,7 +42,9 @@ def _run_phase(job: Job, phase: str, feedback) -> int:
 
 def _status(job: Job) -> int:
     print(f"job {job.id} in {job.root}")
-    print(f"parent Claude session: {job.state.get('parent')}")
+    parent = job.state.get("parent")
+    source = job.state.get("parent_src", "cl")
+    print(f"parent session: {source}|{parent}" if parent else "parent session: None")
     for phase, sid in job.state.get("sessions", {}).items():
         print(f"  {phase:7s} cb|{sid}")
     print(f"locked: {'yes' if 'locked' in job.state else 'no'}")

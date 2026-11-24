@@ -244,6 +244,21 @@ class Linking(unittest.TestCase):
         self.assertEqual(meta["agent"], "ds:tests")
         state = json.loads((d / ".dsd" / "j1" / "state.json").read_text(encoding="utf-8"))
         self.assertEqual(state["sessions"]["tests"], "ds-feedbeef-j1-tests")
+        self.assertEqual(state["parent_src"], "cl")
+
+    def test_codex_sessions_get_cx_parent_sidecars(self):
+        d = make_repo()
+        os.environ["CODEX_THREAD_ID"] = "cafebabe-0000-1111-2222-333344445555"
+        try:
+            with FakeEnv([{"write": {"tests/test_calc.py": TEST}}, {}]) as fe:
+                load(d).run_tests_phase()
+                side = list(fe.projects.glob("*/ds-cafebabe-j1-tests.parent.json"))
+        finally:
+            del os.environ["CODEX_THREAD_ID"]
+        self.assertEqual(len(side), 1)
+        meta = json.loads(side[0].read_text(encoding="utf-8"))
+        self.assertEqual(meta["src"], "cx")
+        self.assertEqual(meta["id"], "cafebabe-0000-1111-2222-333344445555")
 
 
 if __name__ == "__main__":

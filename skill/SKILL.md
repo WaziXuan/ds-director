@@ -1,23 +1,26 @@
 ---
 name: ds-director
-description: Director mode — Claude plans, writes the skeleton and reviews; CodeBuddy CLI running DeepSeek V4.1 Flash Max writes tests first, then the implementation, through the `dsd` tool (D:\Sandbox\ds-director). Use when the user types /ds, says "ds 模式", "让 DeepSeek 写", "用 codebuddy 执行", or asks to delegate a coding task to CodeBuddy/DeepSeek. Not the default way to code.
+agent_created: true
+description: Director mode for Claude Code or Codex — the director plans, writes the skeleton and reviews; CodeBuddy CLI running DeepSeek V4.1 Flash Max writes tests first, then the implementation, through the `dsd` command. Use when the user types /ds or $ds-director, says "ds 模式", "让 DeepSeek 写", "用 codebuddy 执行", or asks to delegate a coding task to CodeBuddy/DeepSeek. Not the default way to code.
 ---
 
 # ds-director
 
-You are the director. You talk to the user, decide structure, review and accept. CodeBuddy
-(DeepSeek V4.1 Flash, effort max; fallback hy4flash → hy4std) writes the code. Tests always
-come before code, and the tool enforces it.
+You are the director, whether running in Claude Code or Codex. You talk to the user, decide
+structure, review and accept. CodeBuddy (DeepSeek V4.1 Flash, effort max; fallback hy4flash →
+hy4std) writes the code. Tests always come before code, and the tool enforces it.
 
 ```bash
-DSD="python D:/Sandbox/ds-director/dsd.py"
-$DSD tests  <task.toml> [--feedback "..."]   # phase 1: red tests + one self-check round
-$DSD lock   <task.toml>                      # you approve: tests + public signatures frozen
-$DSD impl   <task.toml> [--feedback "..."]   # phase 2: green + auto checks + one review session
-$DSD status <task.toml>
+dsd tests  <task.toml> [--feedback "..."]   # phase 1: red tests + one self-check round
+dsd lock   <task.toml>                      # you approve: tests + public signatures frozen
+dsd impl   <task.toml> [--feedback "..."]   # phase 2: green + auto checks + one review session
+dsd status <task.toml>
 ```
-Exit: 0 ok · 2 phase error · 3 needs director · 4 every model failed. Run phases with
-`run_in_background: true` (a phase takes minutes); you are notified when it ends.
+
+Exit: 0 ok · 2 phase error · 3 needs director · 4 every model failed. Run phases in the
+background using the host client's normal mechanism (a phase takes minutes) and inspect the
+result when it ends. If `dsd` is not found, ask the user to install the repository with
+`python -m pip install -e .`; do not assume a machine-specific checkout path.
 
 ## When it is worth it
 
@@ -31,11 +34,11 @@ yourself — the fixed overhead (skeleton, two phases, review) costs more than i
 2. Write the skeleton yourself: file layout, every **public** function/class signature with a
    one-line docstring, body `raise NotImplementedError`. Private helpers are the executor's.
    Public signatures are locked at `lock`; anything public the executor adds or changes is sent back.
-3. Write the task file (keep them in `D:/Sandbox/ds-director/jobs/` or the project):
+3. Write the task file in the target project, using `examples/task.toml` as the starting point:
 
 ```toml
 id = "j1"                       # becomes the CodeBuddy session id ds-<parent8>-j1-<phase>
-workdir = "D:/path/to/repo"     # default: the task file's folder
+workdir = "/absolute/path/to/repo"  # default: the task file's folder
 test_cmd = "python -m unittest discover -s tests -t ."
 test_paths = ["tests/**"]       # what phase 1 may touch
 src_paths = ["pkg/core.py"]     # what phase 2 may touch
@@ -56,9 +59,9 @@ assertions are tight, nothing depends on internals. Problems → `tests --feedba
 
 ## Step 2 — implementation
 
-Run `impl`. The tool loops on its own (zero Claude tokens): restores tampered tests, rejects
-files outside `src_paths`, signature drift, long functions/files, duplicate blocks, dead code,
-red tests — up to `max_fix_rounds`, then a fresh read-only review session, whose
+Run `impl`. The tool loops on its own without consuming director tokens: restores tampered tests,
+rejects files outside `src_paths`, signature drift, long functions/files, duplicate blocks, dead
+code and red tests — up to `max_fix_rounds`, then starts a fresh read-only review session, whose
 `VERDICT: CHANGES` goes back to the implementation session once.
 
 On exit 0: look at `git diff`, rerun `test_cmd` yourself, check the review section and the
@@ -70,11 +73,14 @@ more than twice on the same failure.
 ## Things to keep cheap
 
 - Read the summary `dsd` prints, not the logs. Logs are in `<workdir>/.dsd/<id>/<phase>.log`
-  (stream-json); only `grep` them for a specific question.
+  (stream-json); only search them for a specific question.
+- On Windows, `pwsh <checkout>/watch.ps1 <log>` renders a running log as readable text and tool calls.
 - Never paste whole files into `--feedback`; point at file:line.
 
 ## Sessions
 
-Each CodeBuddy session gets a `<sid>.parent.json` sidecar naming this Claude session
-(`CLAUDE_CODE_SESSION_ID`). session-finder lists them as sub-agents under it
-(`show <this session>`; `list --subagents`).
+Each CodeBuddy session gets a `<sid>.parent.json` sidecar naming its directing session.
+Claude Code uses `CLAUDE_CODE_SESSION_ID` (source `cl`); Codex uses `CODEX_THREAD_ID` or
+`CODEX_SESSION_ID` when available (source `cx`). session-finder lists them as sub-agents under
+the parent (`show <parent>`; `list --subagents`). For another host, set `DSD_PARENT_SESSION`
+and `DSD_PARENT_SOURCE=cl|cx` before invoking `dsd`.

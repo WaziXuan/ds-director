@@ -1,7 +1,7 @@
-"""Tie each CodeBuddy session to the Claude Code session that directed it.
+"""Tie each CodeBuddy session to the Claude Code or Codex session that directed it.
 
-The CodeBuddy session id itself starts with the parent's first 8 characters; the full link
-goes in a `<sid>.parent.json` sidecar next to the transcript, which session-finder reads.
+The CodeBuddy session id starts with the parent's first 8 characters; the full link goes
+in a `<sid>.parent.json` sidecar next to the transcript, which session-finder reads.
 """
 import json
 import os
@@ -14,7 +14,23 @@ def projects_root() -> Path:
 
 
 def current_parent() -> str | None:
-    return os.environ.get("CLAUDE_CODE_SESSION_ID") or None
+    """Return the directing session id, with an explicit override for other hosts."""
+    return (os.environ.get("DSD_PARENT_SESSION")
+            or os.environ.get("CLAUDE_CODE_SESSION_ID")
+            or os.environ.get("CODEX_THREAD_ID")
+            or os.environ.get("CODEX_SESSION_ID") or None)
+
+
+def current_parent_source() -> str:
+    """session-finder source: cl for Claude Code, cx for Codex."""
+    explicit = os.environ.get("DSD_PARENT_SOURCE")
+    if explicit in {"cl", "cx"}:
+        return explicit
+    if os.environ.get("CLAUDE_CODE_SESSION_ID"):
+        return "cl"
+    if os.environ.get("CODEX_THREAD_ID") or os.environ.get("CODEX_SESSION_ID"):
+        return "cx"
+    return "cl"
 
 
 def session_id(parent: str | None, job: str, phase: str) -> str:
@@ -22,13 +38,16 @@ def session_id(parent: str | None, job: str, phase: str) -> str:
     return f"ds-{parent[:8] if parent else 'noparent'}-{job}-{phase}"
 
 
-def write_sidecar(root: Path, sid: str, parent: str | None, agent: str, title: str) -> Path | None:
+def write_sidecar(root: Path, sid: str, parent: str | None, agent: str, title: str,
+                  source: str = "cl") -> Path | None:
     if not parent:
         return None
+    if source not in {"cl", "cx"}:
+        raise ValueError("parent source must be 'cl' or 'cx'")
     hits = sorted(Path(root).glob(f"*/{sid}.jsonl"))
     if not hits:
         return None
     p = hits[0].with_name(f"{sid}.parent.json")
-    p.write_text(json.dumps({"src": "cl", "id": parent, "agent": agent, "title": title},
+    p.write_text(json.dumps({"src": source, "id": parent, "agent": agent, "title": title},
                             ensure_ascii=False), encoding="utf-8")
     return p
