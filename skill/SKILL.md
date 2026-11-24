@@ -19,8 +19,9 @@ dsd status <task.toml>
 
 Exit: 0 ok · 2 phase error · 3 needs director · 4 every model failed. Run phases in the
 background using the host client's normal mechanism (a phase takes minutes) and inspect the
-result when it ends. If `dsd` is not found, ask the user to install the repository with
-`python -m pip install -e .`; do not assume a machine-specific checkout path.
+result when it ends. If `dsd` is not found, try `python -m dsd` first (it is the same CLI and
+needs no PATH change); if that fails too, ask the user to install the repository with
+`python -m pip install .`. Never assume a machine-specific checkout path.
 
 ## When it is worth it
 

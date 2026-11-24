@@ -2,6 +2,7 @@
 import argparse
 import os
 import shutil
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -43,6 +44,10 @@ def main(argv=None) -> int:
                         claude=both or args.claude, codex=both or args.codex):
         print(f"installed: {path}")
     print("Existing files were backed up with a .bak suffix before replacement.")
+    if shutil.which("dsd") is None:
+        scripts = Path(sys.executable).parent / ("Scripts" if os.name == "nt" else "bin")
+        print(f"warning: `dsd` is not on PATH. Add {scripts} to PATH, or run the phases as\n"
+              f"         `{sys.executable} -m dsd <command> <task.toml>`, which needs no PATH change.")
     return 0
 
 

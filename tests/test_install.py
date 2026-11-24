@@ -1,3 +1,5 @@
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -30,6 +32,12 @@ class Install(unittest.TestCase):
         self.assertEqual(len(paths), 1)
         self.assertEqual(paths[0], root / "agents" / "skills" / "ds-director" / "SKILL.md")
         self.assertFalse((root / "claude").exists())
+
+    def test_python_dash_m_dsd_reaches_the_cli(self):
+        result = subprocess.run([sys.executable, "-m", "dsd", "--help"],
+                                cwd=install.ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("dsd tests", result.stdout)
 
 
 if __name__ == "__main__":

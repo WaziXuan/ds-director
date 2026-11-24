@@ -20,6 +20,8 @@ python install.py
 
 已有文件在替换前会保存为同目录的 `.bak`。也可执行 `python install.py --claude` 或 `python install.py --codex` 只装一端。
 
+如果 `dsd` 提示找不到命令，说明 Python 的 Scripts 目录不在 PATH（Windows 上常见）。可以把它加进 PATH，或者直接用 `python -m dsd tests task.toml` 这类等价写法，不需要改 PATH。
+
 ## 怎么用
 
 - Claude Code：新开或重启会话，输入 `/ds 你的任务`。
